@@ -1,5 +1,42 @@
 #include "main.h"
 
+// intake control functions
+void intake_store() {
+    front_bottom.move(-127);  // Counter-clockwise to intake
+    
+    // Check if color sensor detects a ball
+    if (color_sensor.get_proximity() > 100) {
+        middle.move(65);  // if theres a ball, move it up
+    } else {
+        middle.move(0);   // if theres no ball, stop middle
+    }
+    back_top.move(0);     // never run top motor during storage
+}
+
+void outtake_top() {
+    front_bottom.move(-127);
+    middle.move(127);
+    back_top.move(127);
+}
+
+void outtake_middle() {
+    front_bottom.move(-127);
+    middle.move(127);
+    back_top.move(-127);
+}
+
+void outtake_bottom() {
+    front_bottom.move(127);
+    middle.move(-127);
+    back_top.move(0);
+}
+
+void stop_intake() {
+    front_bottom.move(0);
+    middle.move(0);
+    back_top.move(0);
+}
+
 /**
  * A callback function for LLEMU's center button.
  *
@@ -24,9 +61,17 @@ void on_center_button() {
  */
 void initialize() {
 	pros::lcd::initialize();
-	pros::lcd::set_text(1, "Hello PROS User!");
+	pros::lcd::set_text(1, "Calibrating...");
 
 	pros::lcd::register_btn1_cb(on_center_button);
+	
+	// calibrate sensors
+	chassis.calibrate();
+	
+	// wait for IMU to finish calibrating
+	pros::delay(2000);
+	
+	pros::lcd::set_text(1, "Ready!");
 }
 
 /**
@@ -74,21 +119,73 @@ void autonomous() {}
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({1, -2, 3});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
-	pros::MotorGroup right_mg({-4, 5, -6});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
-
+	// pneumatic states
+	bool gutter_state = false;
+	bool pneumatic_d_state = false;
 
 	while (true) {
-		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
-		                 (pros::lcd::read_buttons() & LCD_BTN_CENTER) >> 1,
-		                 (pros::lcd::read_buttons() & LCD_BTN_RIGHT) >> 0);  // Prints status of the emulated screen LCDs
-
-		// Arcade control scheme
-		int dir = master.get_analog(ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
-		int turn = master.get_analog(ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
-		left_mg.move(dir - turn);                      // Sets left motor voltage
-		right_mg.move(dir + turn);                     // Sets right motor voltage
-		pros::delay(20);                               // Run for 20 ms then update
+		// get joystick values
+		int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
+		int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
+		
+		// drive the robot (arcade drive)
+		chassis.arcade(leftY, rightX, false, 0.6);
+		
+		// pneumatic controls
+		// right arrow: toggle gutter (match loader)
+		if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+			gutter_state = !gutter_state;
+			gutter.set_value(gutter_state);
+		}
+		
+		if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_LEFT)) {
+			pneumatic_d_state = !pneumatic_d_state;
+			pneumatic_d.set_value(pneumatic_d_state);
+		}
+		
+		// align to nearest 0 or 180 degrees (faster turn)
+		if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
+			float current_heading = chassis.getPose().theta;
+			while (current_heading < 0) current_heading += 360;
+			while (current_heading >= 360) current_heading -= 360;
+			
+			// Find nearest between 0 and 180
+			float diff_to_0 = std::abs(current_heading - 0);
+			if (diff_to_0 > 180) diff_to_0 = 360 - diff_to_0;
+			float diff_to_180 = std::abs(current_heading - 180);
+			if (diff_to_180 > 180) diff_to_180 = 360 - diff_to_180;
+			
+			float nearest = (diff_to_0 < diff_to_180) ? 0 : 180;
+			
+			chassis.turnToHeading(nearest, 500, {.maxSpeed = 127}, false);
+		}
+		
+		// reverse direction toggle (press A to flip front)
+		int forward = leftY;
+		if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_A)) {
+			forward = -forward;
+		}
+		
+		// intake/outtake controls
+		if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
+			intake_store();
+		} else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) {
+			outtake_top();
+		} else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1)) {
+			outtake_middle();
+		} else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L2)) {
+			outtake_bottom();
+		} else {
+			stop_intake();
+		}
+		
+		// brake mode control - hold when disconnected
+		if (!controller.is_connected()) {
+			chassis.setBrakeMode(pros::E_MOTOR_BRAKE_HOLD);
+		} else {
+			chassis.setBrakeMode(pros::E_MOTOR_BRAKE_COAST);
+		}
+		
+		pros::delay(20);  // Run for 20 ms then update
 	}
 }

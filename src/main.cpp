@@ -38,40 +38,17 @@ void stop_intake() {
 }
 
 /**
- * A callback function for LLEMU's center button.
- *
- * When this callback is fired, it will toggle line 2 of the LCD text between
- * "I was pressed!" and nothing.
- */
-void on_center_button() {
-	static bool pressed = false;
-	pressed = !pressed;
-	if (pressed) {
-		pros::lcd::set_text(2, "I was pressed!");
-	} else {
-		pros::lcd::clear_line(2);
-	}
-}
-
-/**
  * Runs initialization code. This occurs as soon as the program is started.
  *
  * All other competition modes are blocked by initialize; it is recommended
  * to keep execution time for this mode under a few seconds.
  */
 void initialize() {
-	pros::lcd::initialize();
-	pros::lcd::set_text(1, "Calibrating...");
-
-	pros::lcd::register_btn1_cb(on_center_button);
-	
 	// calibrate sensors
 	chassis.calibrate();
 	
 	// wait for IMU to finish calibrating
 	pros::delay(2000);
-	
-	pros::lcd::set_text(1, "Ready!");
 }
 
 /**
@@ -143,7 +120,7 @@ void opcontrol() {
 			pneumatic_d.set_value(pneumatic_d_state);
 		}
 		
-		// align to nearest 0 or 180 degrees (faster turn)
+		// align to nearest 0 or 180 degrees
 		if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
 			float current_heading = chassis.getPose().theta;
 			while (current_heading < 0) current_heading += 360;

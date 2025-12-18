@@ -36,6 +36,9 @@
 
 #include "api.h"
 
+// LVGL is accessed via pros/apix.h on PROS V5
+#include "pros/apix.h"
+
 /**
  * You should add more #includes here
  */

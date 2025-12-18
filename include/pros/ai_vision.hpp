@@ -23,7 +23,9 @@
 
 #include <cstdint>
 #include <type_traits>
+#if __has_include(<expected>)
 #include <expected>
+#endif
 
 #include "pros/ai_vision.h"
 #include "pros/device.hpp"
